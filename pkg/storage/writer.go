@@ -131,3 +131,23 @@ func WriteDualArrayBatch(
 
 	return nil
 }
+
+// OpenArrayForWriteAt opens a TileDB array in WRITE mode tagged with an explicit millisecond timestamp.
+func OpenArrayForWriteAt(ctx *tiledb.Context, arrayURI string, timestamp uint64) (*tiledb.Array, error) {
+	array, err := tiledb.NewArray(ctx, arrayURI)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating array object for %s: %w", arrayURI, err)
+	}
+
+	err = array.OpenWithOptions(
+		tiledb.TILEDB_WRITE,
+		tiledb.WithStartTimestamp(timestamp),
+		tiledb.WithEndTimestamp(timestamp),
+	)
+	if err != nil {
+		array.Free()
+		return nil, fmt.Errorf("failed opening array %s in WRITE mode at timestamp %d: %w", arrayURI, timestamp, err)
+	}
+
+	return array, nil
+}
