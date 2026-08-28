@@ -12,21 +12,20 @@ type UUIDPair struct {
 }
 
 // Stage1QueryCells executes a spatio-temporal range search against footprint-cells.tiledb.
+// If arrayStartMS and arrayEndMS are set to 0, it defaults to reading all committed array fragments.
 func Stage1QueryCells(
 	tdbCtx *tiledb.Context,
 	cellsURI string,
 	queryRanges [][2]uint64,
 	startNS, endNS int64,
+	arrayStartMS, arrayEndMS uint64,
 ) ([]UUIDPair, error) {
-	array, err := tiledb.NewArray(tdbCtx, cellsURI)
+	// open array using range helper to preserve default behavior if timestamps are 0
+	array, err := OpenArrayForReadRange(tdbCtx, cellsURI, arrayStartMS, arrayEndMS)
 	if err != nil {
 		return nil, fmt.Errorf("opening cells array: %w", err)
 	}
 	defer array.Free()
-
-	if err := array.Open(tiledb.TILEDB_READ); err != nil {
-		return nil, fmt.Errorf("opening cells array for read: %w", err)
-	}
 	defer array.Close()
 
 	query, err := tiledb.NewQuery(tdbCtx, array)
@@ -60,10 +59,10 @@ func Stage1QueryCells(
 	uuidLows := make([]uint64, maxResults)
 
 	if _, err := query.SetDataBuffer("uuid_high", uuidHighs); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("setting uuid_high buffer: %w", err)
 	}
 	if _, err := query.SetDataBuffer("uuid_low", uuidLows); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("setting uuid_low buffer: %w", err)
 	}
 
 	if err := query.Submit(); err != nil {
