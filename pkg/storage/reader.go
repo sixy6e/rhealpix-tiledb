@@ -89,21 +89,24 @@ func Stage1QueryCells(
 	return results, nil
 }
 
-// Stage2FetchCatalogue retrieves full STAC JSON strings by UUID pairs.
-func Stage2FetchCatalogue(tdbCtx *tiledb.Context, catalogueURI string, uuids []UUIDPair) ([]string, error) {
-	if len(uuids) == 0 {
+// Stage2FetchCatalogue retrieves full STAC JSON strings by UUID pairs from scene-catalogue.tiledb.
+// If arrayStartMS and arrayEndMS are set to 0, it defaults to reading all committed array fragments.
+func Stage2FetchCatalogue(
+	tdbCtx *tiledb.Context,
+	catalogueURI string,
+	uuidPairs []UUIDPair,
+	arrayStartMS, arrayEndMS uint64,
+) ([]string, error) {
+	if len(uuidPairs) == 0 {
 		return nil, nil
 	}
 
-	array, err := tiledb.NewArray(tdbCtx, catalogueURI)
+	// open array at timestamp commit interval range
+	array, err := OpenArrayForReadRange(tdbCtx, catalogueURI, arrayStartMS, arrayEndMS)
 	if err != nil {
 		return nil, fmt.Errorf("opening catalogue array: %w", err)
 	}
 	defer array.Free()
-
-	if err := array.Open(tiledb.TILEDB_READ); err != nil {
-		return nil, fmt.Errorf("opening catalogue array for read: %w", err)
-	}
 	defer array.Close()
 
 	query, err := tiledb.NewQuery(tdbCtx, array)
@@ -118,26 +121,29 @@ func Stage2FetchCatalogue(tdbCtx *tiledb.Context, catalogueURI string, uuids []U
 	}
 	defer subarray.Free()
 
-	for _, pair := range uuids {
-		_ = subarray.AddRangeByName("uuid_high", tiledb.MakeRange(pair.High, pair.High))
-		_ = subarray.AddRangeByName("uuid_low", tiledb.MakeRange(pair.Low, pair.Low))
+	for _, pair := range uuidPairs {
+		if err := subarray.AddRangeByName("uuid_high", tiledb.MakeRange(pair.High, pair.High)); err != nil {
+			return nil, fmt.Errorf("setting uuid_high range: %w", err)
+		}
+		if err := subarray.AddRangeByName("uuid_low", tiledb.MakeRange(pair.Low, pair.Low)); err != nil {
+			return nil, fmt.Errorf("setting uuid_low range: %w", err)
+		}
 	}
 
 	if err := query.SetSubarray(subarray); err != nil {
 		return nil, fmt.Errorf("setting catalogue query subarray: %w", err)
 	}
 
-	const maxDataBytes = 10 * 1024 * 1024
-	const maxOffsets = 1000
+	const maxVarBufferBytes = 10 * 1024 * 1024
 
-	stacData := make([]byte, maxDataBytes)
-	stacOffsets := make([]uint64, maxOffsets)
+	stacData := make([]byte, maxVarBufferBytes)
+	stacOffsets := make([]uint64, len(uuidPairs))
 
 	if _, err := query.SetDataBuffer("stac_json", stacData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("setting stac_json data buffer: %w", err)
 	}
 	if _, err := query.SetOffsetsBuffer("stac_json", stacOffsets); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("setting stac_json offsets buffer: %w", err)
 	}
 
 	if err := query.Submit(); err != nil {
@@ -148,6 +154,7 @@ func Stage2FetchCatalogue(tdbCtx *tiledb.Context, catalogueURI string, uuids []U
 	if err != nil {
 		return nil, fmt.Errorf("getting catalogue buffer elements: %w", err)
 	}
+
 	numRead := elements["stac_json"][0]
 
 	var stacJSONs []string
