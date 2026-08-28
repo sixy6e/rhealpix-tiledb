@@ -165,3 +165,43 @@ func Stage2FetchCatalogue(tdbCtx *tiledb.Context, catalogueURI string, uuids []U
 
 	return stacJSONs, nil
 }
+
+// OpenArrayForReadRange opens a TileDB array in READ mode isolated strictly
+// to fragments committed within [startTimestamp, endTimestamp] in milliseconds.
+// If startTimestamp and endTimestamp are 0, it preserves TileDB's default behavior
+// of reading across all committed historical fragments [0, UINT64_MAX].
+func OpenArrayForReadRange(
+	ctx *tiledb.Context,
+	arrayURI string,
+	startTimestamp uint64,
+	endTimestamp uint64,
+) (*tiledb.Array, error) {
+	array, err := tiledb.NewArray(ctx, arrayURI)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating array object for %s: %w", arrayURI, err)
+	}
+
+	var opts []tiledb.ArrayOpenOption
+
+	// only append options if explicit non-zero bounds are provided.
+	// omitting options lets TileDB default to [0, UINT64_MAX] (all commits).
+	if startTimestamp > 0 {
+		opts = append(opts, tiledb.WithStartTimestamp(startTimestamp))
+	}
+	if endTimestamp > 0 {
+		opts = append(opts, tiledb.WithEndTimestamp(endTimestamp))
+	}
+
+	if err := array.OpenWithOptions(tiledb.TILEDB_READ, opts...); err != nil {
+		array.Free()
+		return nil, fmt.Errorf("failed opening array %s in READ mode for range [%d, %d]: %w",
+			arrayURI, startTimestamp, endTimestamp, err)
+	}
+
+	return array, nil
+}
+
+// OpenArrayForReadAsOf opens an array in READ mode up to a historical cutoff time.
+func OpenArrayForReadAsOf(ctx *tiledb.Context, arrayURI string, asOfTimestamp uint64) (*tiledb.Array, error) {
+	return OpenArrayForReadRange(ctx, arrayURI, 0, asOfTimestamp)
+}
