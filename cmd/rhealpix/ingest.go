@@ -40,7 +40,7 @@ func init() {
 	ingestCmd.Flags().String("product", "sentinel-2", "Product group name")
 	ingestCmd.Flags().Bool("init", false, "Purge and recreate product group schemas")
 	ingestCmd.Flags().Uint("resolution", 13, "rHEALPix resolution depth (12 or 13)")
-	ingestCmd.Flags().Int("batch", 200, "Flush batch size")
+	ingestCmd.Flags().Int("batch_size", 200, "Flush batch size")
 	ingestCmd.Flags().Int("workers", 0, "Worker pool concurrency")
 
 	rootCmd.AddCommand(ingestCmd)
@@ -56,7 +56,7 @@ func runIngest(cmd *cobra.Command, args []string) error {
 	productName := viper.GetString("product")
 	initMode := viper.GetBool("init")
 	targetRes := uint8(viper.GetUint("resolution"))
-	batchSize := viper.GetInt("batch")
+	batchSize := viper.GetInt("batch_size")
 	workers := viper.GetInt("workers")
 
 	var readCfg, writeCfg storage.ContextConfig
